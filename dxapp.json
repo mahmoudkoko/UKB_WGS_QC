@@ -1,0 +1,54 @@
+{
+  "name": "ukb23374_wgs_qc_applet",
+  "title": "GraphTyper WGS QC Applet",
+  "summary": "WGS QC applet. Takes a list of vcf file IDs in a single file runs a bunch of pre-defined filters. The output is plink2 files and some other qc metrics.",
+  "version": "0.2",
+  "inputSpec":
+    [
+      {
+        "name": "ukb23374_vcf_list",
+        "label": "VCF list",
+        "help": "Input file ID (hash file-xxxxx). Contains a list of vcf file IDs from field 23374, one per line",
+        "class": "file",
+        "optional": false,
+        "default":"file-J09gYJjJZz4b414z29Z1K2BV"
+      },
+      {
+        "name": "qc_output_dir",
+        "label": "Output directory",
+        "help": "Where to save the output files",
+        "class": "string",
+        "optional": false
+      },
+      {
+        "name": "parallel_qc_jobs",
+        "label": "Parallel VCF QC jobs",
+        "help": "Number of files to process in parallel",
+        "class": "int",
+        "optional": false,
+        "default":"1"
+      }
+    ],
+  "outputSpec":
+    [
+      {
+        "name": "qc_log_file",
+        "label": "Log file",
+        "help": "Gzipped text file with concatenated logs.",
+        "class": "file",
+         "patterns": ["*summary.txt.gz"]
+      }
+    ],
+  "runSpec":
+    {
+      "file": "src/vcf_qc_processor.sh",
+      "interpreter": "bash" ,
+      "systemRequirements": {"*": {"instanceType": "mem1_ssd1_v2_x4"} },
+      "distribution": "Ubuntu",
+      "release": "24.04",
+      "version": "0",
+      "execDepends": [{"name": "parallel"}]
+    },
+  "openSource": false
+}
+
