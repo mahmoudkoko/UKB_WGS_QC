@@ -7,12 +7,13 @@
 export_global_vars() {
 
 # Going forward, CAPs will indicate variables not specific to a function.
-export DX_APPLET_ID=$(cat /home/dnanexus/dnanexus-job.json | jq -r .applet | sed 's/project-.*://' )
+export DX_APPLET_ID=$(cat /home/dnanexus/dnanexus-job.json | jq -r .executable | sed 's/project-.*://' )
 export DX_EXECUTABLE_NAME=$(cat /home/dnanexus/dnanexus-job.json | jq -r .executableName | sed 's/project-.*://' )
 export DX_EXECUTION_DIR=$(cat /home/dnanexus/dnanexus-job.json | jq -r .folder | sed 's/project-.*://' )
-export DX_CPUS=$(cat /home/dnanexus/dnanexus-executable.json | jq -r '.runSpec.systemRequirements."*".instanceType' | sed 's/mem.*x//')
 
 # This will export the number of parallel VCF QC jobs to run
+export DX_CPUS=$(cat /home/dnanexus/dnanexus-executable.json | jq -r '.runSpec.systemRequirements."*".instanceType' | sed 's/mem.*x//')
+
 if [[ DX_CPUS -gt 4 ]]; then 
 	export N_JOBS=$(( DX_CPUS / 4 ))
 else
@@ -51,11 +52,11 @@ log_execution_context() {
     echo "Applet Name: ${DX_EXECUTABLE_NAME:-'Not available'}"
     echo "Destination: ${DX_EXECUTION_DIR:-'Not available'}"
     echo "=== Inputs ==="
-    echo "Directory: ${INPUT_VCF_DIR:-'Not available'}"
-    echo "File name: ${INPUT_VCF_NAME:-'Not available'}"
-    echo "File hash: ${INPUT_VCF_HASH:-'Not available'}"
+    echo "Directory: ${VCF_LIST_DIR:-'Not available'}"
+    echo "File name: ${VCF_LIST_NAME:-'Not available'}"
+    echo "File hash: ${VCF_LIST_HASH:-'Not available'}"
     echo "=== Output directories ==="
     echo "QC files (bgen, sites, stats) : ${OUTPUT_DIR:-'Not available'}"
-    echo "Log files (summary.txt.gz): ${INPUT_VCF_DIR:-'Not available'}"
+    echo "Log files (summary.txt.gz): ${VCF_LIST_DIR:-'Not available'}"
     echo "========================="
 }

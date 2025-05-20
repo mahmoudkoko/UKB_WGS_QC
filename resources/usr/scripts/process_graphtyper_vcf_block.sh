@@ -79,13 +79,14 @@ process_graphtyper_vcf_block() {
         vcf_hash="$query_input"
     else
         # Try to resolve as path and get corresponding hash
-        vcf_hash=$(dx describe --json "$query_input" 2>/dev/null | jq -r .id | sed 's/project-.*://') || {
+        vcf_hash=$(dx describe --project ${DX_PROJECT_CONTEXT_ID} --json "$query_input" 2>/dev/null | jq -r .id | sed 's/project-.*://') || {
             log_message "ERROR: Cannot resolve $query_input to file ID"
-            return 2
+            #return 2
             # Exit code 2 reserved for errors leading to the file being skipped.
         }
     fi
     
+
     # Get VCF name from hash and validate
      vcf_name=$(dx describe --json "$vcf_hash" | jq -r .name | sed 's/project-.*://')
    

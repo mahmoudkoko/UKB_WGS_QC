@@ -8,10 +8,21 @@ source /usr/scripts/process_graphtyper_vcf_block.sh
 source /usr/scripts/global_cleanup.sh
 source /usr/scripts/utilities.sh
 
+# Set global vars
+export_global_vars
 
-# Set up global cleanup trap
+# Export the function for parallel runs
+export -f process_graphtyper_vcf_block
+export -f log_message
+export -f track_temp_dir
+export -f track_temp_file
+
+# Set global cleanup trap
 trap global_cleanup EXIT INT TERM
 
+
+# Execution context
+log_execution_context
 
 
 ##################
@@ -20,39 +31,8 @@ trap global_cleanup EXIT INT TERM
 
 main() {
 
-    # Export the function for parallel (not all needed but to keep track of available functions)
 
-    # QC function
-    export -f process_graphtyper_vcf_block
-
-    # Supporting functions
-    export -f export_global_vars
-    export -f check_ongoing_applet_runs
-    export -f log_execution_context
-    export -f log_message
-
-    # Cleanup functions
-    export -f global_cleanup
-    export -f track_temp_dir
-    export -f track_temp_file
-    
-    # Set the environment
-    export_global_vars
-
-    # Execution context
-    log_execution_context
-
-
-    # # Dirs and files
-    # log_dir="./LOG_DIR"
-    # vcf_list_file=""
-    # vcf_list_dir=""
-    # joblog=""
-    # jobsummary=""
-    
-
-
-    # Dirs and files
+    # Initiate dirs and files
     local log_dir="./LOG_DIR"
     local vcf_list_file=""
     local vcf_list_dir=""
@@ -60,24 +40,33 @@ main() {
     local jobsummary=""
     local jobsummary_dx_id=""
 
-   # Check for ongoing applet runs with same input
-    if ! check_ongoing_applet_runs "$VCF_LIST_HASH"; then
-        log_message "ERROR: Duplicate applet run detected - exiting"
-        exit 1
-    fi
 
-    # Track main temp directory
-    track_temp_dir "$log_dir"
-    
     # Create log directory
     mkdir -p "$log_dir"
+
+    # Output logs
+    joblog="${log_dir}/${VCF_LIST_NAME%.input.txt}.log"
+    jobsummary="${log_dir}/${VCF_LIST_NAME%.input.txt}.summary.txt.gz"
     
-    # Check the input file
-   
-    if [[ ! "${VCF_LIST_NAME}" =~ ^vcf_list_ ]] || [[ ${VCF_LIST_NAME} =~ .input.txt$ ]] ; then
+    # Track main temp directory
+    track_temp_file "$joblog"
+    track_temp_file "$jobsummary"    
+    track_temp_dir "$log_dir"
+    
+
+    # Process the input file
+
+    log_message "INFO: Getting the VCF list ..."
+
+   # Check for ongoing applet runs with same input
+    if ! check_ongoing_applet_runs ; then
+        log_message "ERROR: Duplicate applet run detected - exiting"
+        exit 1
+
+    elif [[ ! "${VCF_LIST_NAME}" =~ ^vcf_list_ ]] || [[ ! ${VCF_LIST_NAME} =~ .input.txt$ ]] ; then
 
         # If the name isn't right, issue an error and exit
-        log_message "ERROR: $VCF_LIST_NAME does not match expected pattern (vcf_list_n_of_N.input.txt)"
+        log_message "ERROR: $VCF_LIST_NAME does not match expected pattern (vcf_list_n_of_N.input.txt) - exiting"
         exit 1
 
         # Otherwise download the file
@@ -86,15 +75,12 @@ main() {
         # If the download fails, issue an error and exit
         log_message "ERROR: Failed to download VCF list file - exiting"
         exit 1
+    else
+
+        log_message "INFO: List contains $(cat {log_dir}/${VCF_LIST_NAME} | wc -l) elements"
     fi
     
-    # Track the output logs
-    joblog="${log_dir}/${VCF_LIST_NAME%.input.txt}.log"
-    jobsummary="${log_dir}/${VCF_LIST_NAME%.input.txt}.summary.txt.gz"
-    
-    track_temp_file "$joblog"
-    track_temp_file "$jobsummary"
-    
+
     # Run parallel jobs with timeout (~ 3 hours) and a single retry
     log_message "INFO: Starting parallel processing with $N_JOBS jobs ..."
     

@@ -13,13 +13,13 @@ log_message() {
 track_temp_dir() {
     local dir="$1"
     GLOBAL_TEMP_DIRS+=("$dir")
-    log_message "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Tracking temp directory: $dir"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Tracking temp directory: $dir" >&2
 }
 
 # Function to safely add files to cleanup list
 track_temp_file() {
     local file="$1"
     GLOBAL_TEMP_FILES+=("$file")
-    log_message "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Tracking temp file: $file"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: Tracking temp file: $file" >&2
 }
 

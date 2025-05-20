@@ -4,13 +4,13 @@
 
 check_ongoing_applet_runs() {
     # strip the project ID in case there is one
-    local input_vcf_list="$(echo $1 | sed 's/project-.*://')"
+    local input_vcf_list="$(echo $VCF_LIST_HASH | sed 's/project-.*://')"
     
     # Get current applet and job IDs from environment
     local current_applet_id="${DX_APPLET_ID:-}"
     local current_job_id="${DX_JOB_ID:-}"
     
-    if [[ -z "$current_applet_id" ]]; then
+    if [[ -z "$current_applet_id" ]] || [[ "$current_applet_id" == null ]]; then
         log_message "WARNING: Could not determine current applet ID from environment. Using default: ukb23374_wgs_qc_applet"
         # Fallback to hardcoded name
         current_applet_id="ukb23374_wgs_qc_applet"
@@ -23,6 +23,7 @@ check_ongoing_applet_runs() {
     # Find running or runnable jobs for this applet (using actual applet ID)
     local ongoing_jobs
     ongoing_jobs=$(dx find jobs \
+        --project ${DX_PROJECT_CONTEXT_ID} \
         --tag "wgs_qc_batch" \
         --executable "$current_applet_id" \
         --brief |\
