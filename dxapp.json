@@ -2,7 +2,7 @@
   "name": "ukb23374_wgs_qc_applet",
   "title": "GraphTyper WGS QC Applet",
   "summary": "WGS QC applet. Takes a list of vcf file IDs in a single file runs a bunch of pre-defined filters. The output is plink2 files and some other qc metrics.",
-  "version": "0.2",
+  "version": "0.2.0",
   "inputSpec":
     [
       {
@@ -10,8 +10,7 @@
         "label": "VCF list",
         "help": "Input file ID (hash file-xxxxx). Contains a list of vcf file IDs from field 23374, one per line",
         "class": "file",
-        "optional": false,
-        "default":"file-J09gYJjJZz4b414z29Z1K2BV"
+        "optional": false
       },
       {
         "name": "qc_output_dir",
@@ -19,14 +18,6 @@
         "help": "Where to save the output files",
         "class": "string",
         "optional": false
-      },
-      {
-        "name": "parallel_qc_jobs",
-        "label": "Parallel VCF QC jobs",
-        "help": "Number of files to process in parallel",
-        "class": "int",
-        "optional": false,
-        "default":"1"
       }
     ],
   "outputSpec":
@@ -41,7 +32,7 @@
     ],
   "runSpec":
     {
-      "file": "src/vcf_qc_processor.sh",
+      "file": "src/main.sh",
       "interpreter": "bash" ,
       "systemRequirements": {"*": {"instanceType": "mem1_ssd1_v2_x4"} },
       "distribution": "Ubuntu",
@@ -51,4 +42,3 @@
     },
   "openSource": false
 }
-
