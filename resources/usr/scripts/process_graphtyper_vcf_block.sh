@@ -13,36 +13,7 @@ process_graphtyper_vcf_block() {
     cleanup_vcf_processing() {
         local exit_code=$?
         
-        log_message "INFO: Cleaning up VCF processing (stage: $cleanup_stage, exit: $exit_code)"
-        
-        # Progressive cleanup based on stage
-        case $cleanup_stage in
-            0) 
-                log_message "INFO: No cleanup needed - function initialization"
-                ;;
-            1) 
-                log_message "INFO: Cleaning up after download failure..."
-                [[ -f "${file_name_prefix}.vcf.gz" ]] && rm -f "${file_name_prefix}.vcf.gz" 2>/dev/null || true
-                ;;
-            2) 
-                log_message "INFO: Cleaning up after BCF processing failure..."
-                rm -f "${file_name_prefix}".{vcf.gz,bcf,bcf.csi} 2>/dev/null || true
-                ;;
-            3) 
-                log_message "INFO: Cleaning up after plink2 processing failure..."
-                rm -f "${file_name_prefix}".{vcf.gz,bcf,bcf.csi} 2>/dev/null || true
-                rm -f "${file_name_prefix}.qc".{pgen,psam.gz,pvar.zst,log,scount.zst} 2>/dev/null || true
-                ;;
-            4)
-                log_message "INFO: Cleaning up working directory after processing failure..."
-                ;;
-        esac
-        
-        # Always clean up the working directory at the end
-        if [[ -n "${vcf_dir:-}" && -d "$vcf_dir" ]]; then
-            log_message "INFO: Removing working directory: $vcf_dir"
-            rm -rf "$vcf_dir" 2>/dev/null || true
-        fi
+        log_message "INFO: Cleaning up working directory"        
         
         # Clean up tracked local files
         for file in "${temp_files_local[@]}"; do
@@ -53,6 +24,11 @@ process_graphtyper_vcf_block() {
         for dir in "${temp_dirs_local[@]}"; do
             [[ -d "$dir" ]] && rm -rf "$dir" 2>/dev/null || true
         done
+
+        # Always clean up the working directory at the end
+        if [[ -n "${vcf_dir:-}" && -d "$vcf_dir" ]]; then
+            rm -rf "$vcf_dir" 2>/dev/null || true
+        fi
         
         return $exit_code
     }
@@ -61,61 +37,60 @@ process_graphtyper_vcf_block() {
     trap cleanup_vcf_processing RETURN
     
     # Stage 0: Function initialization
-    cleanup_stage=0
     
     # Read input and validate
-    local query_input="$1"
+    local vcf_input="$(echo $1 | sed -e "s/project-.*://" -e 's/^"//' -e 's/"$//')"
+    local vcf_desc=""
     local vcf_hash=""
     local vcf_name=""
+    local vcf_dir=""
     local chr=""
     local blk=""
-    local vcf_dir=""
     local file_name_prefix=""
     local output_files_array=()
     
 
     # Determine if input is file hash or path
-    if [[ "$query_input" =~ ^file- ]]; then
-        vcf_hash="$query_input"
-    else
-        # Try to resolve as path and get corresponding hash
-        vcf_hash=$(dx describe --project ${DX_PROJECT_CONTEXT_ID} --json "$query_input" 2>/dev/null | jq -r .id | sed 's/project-.*://') || {
-            log_message "ERROR: Cannot resolve $query_input to file ID"
-            #return 2
-            # Exit code 2 reserved for errors leading to the file being skipped.
-        }
-    fi
-    
+    vcf_desc=$(dx describe --json "${DX_PROJECT_CONTEXT_ID}:$query_input" 2>/dev/null )
+    vcf_hash="$(echo $vcf_desc | jq -r .id )"
+    vcf_name="$(echo $vcf_desc | jq -r .name )"
 
-    # Get VCF name from hash and validate
-     vcf_name=$(dx describe --json "$vcf_hash" | jq -r .name | sed 's/project-.*://')
-   
-    if [[ ! "$vcf_name" =~ ^ukb23374_c ]] || [[ ! "$vcf_name" =~ "_v1.vcf.gz$" ]]; then
-        log_message "ERROR: $vcf_name does not match expected pattern (ukb23374_cx_bx_v1.vcf.gz)"
-        return 2
-    fi
-    
-    # Check for existing outputs (this prevents the same file from running twice by mistake)
-    if dx find data --name "${vcf_name%.vcf.gz}.qc_outputs.txt" --folder "${DX_PROJECT_CONTEXT_ID}:${OUTPUT_DIR}/logs/" --brief | grep -q . ; then
-        log_message "WARNING: Found existing outputs for $vcf_name. Skipping."
-        return 1
-    fi
-    
     # Extract chromosome and block
     chr=$(echo "$vcf_name" | cut -f2 -d'_' | tr -d 'c')
     blk=$(echo "$vcf_name" | cut -f3 -d'_' | tr -d 'b')
+    
+
+
+    if [[ -z "$vcf_name" ]] || [[ -z "$chr" ]] || [[ -z "$blk" ]]; then
+            log_message "ERROR: Cannot resolve vcf file ID or path"
+            return 2
+    
+    # Validate VCF name
+    elif [[ ! "$vcf_name" =~ ^ukb23374_c ]] || [[ ! "$vcf_name" =~ "_v1.vcf.gz$" ]] || [[ ! "$chr" =~ ^([1-9]|1[0-9]|2[0-2]|X|x)$ ]] || [[ ! "$blk" =~ ^-?[0-9]+$ ]]; then
+        log_message "ERROR: $vcf_name does not match expected pattern (ukb23374_cx_bx_v1.vcf.gz)"
+        return 2
+  
+    # Check for existing outputs (this prevents the same file from running twice by mistake)
+    elif dx find data --name "${vcf_name%.vcf.gz}.qc_outputs.txt" --folder "${DX_PROJECT_CONTEXT_ID}:${OUTPUT_DIR}/logs/" --brief | grep -q . ; then
+        log_message "ERROR: Found existing outputs for $vcf_name. Skipping."
+        return 1
+    else
+        # Continue if no errors
+        log_message "INFO: Processing vcf file: $vcf_name"
+    fi
     
     # Create working directory
     vcf_dir="${vcf_hash#file-}"
     mkdir -p "$vcf_dir"
     temp_dirs_local+=("$vcf_dir")  # Track for cleanup
+
     track_temp_dir "$vcf_dir"      # Track globally too
 
     # Create output prefix to write directly in this folder
     file_name_prefix="${vcf_dir}/${vcf_name%".vcf.gz"}"
     
     # Stage 1: Download VCF
-    cleanup_stage=1
+
     log_message "INFO: Downloading block $blk of chromosome $chr ..."
     
     if ! dx download -f "${DX_PROJECT_CONTEXT_ID}:${vcf_hash}" --output "$vcf_dir/" --no-progress; then
@@ -125,16 +100,17 @@ process_graphtyper_vcf_block() {
     
     # Track temp files locally and globally
     temp_files_local+=("${file_name_prefix}.vcf.gz")
+
     track_temp_file "${file_name_prefix}.vcf.gz"
     
     # Check if VCF has variants
     if ! bcftools view -H "${file_name_prefix}.vcf.gz" | head -n 1 | grep -q . ; then
-        log_message "WARNING: No variants in this VCF. Skipping."
+        log_message "ERROR: No variants in this VCF. Skipping."
         return 1
     fi
     
     # Stage 2: BCF processing
-    cleanup_stage=2
+
     log_message "INFO: Applying genotype filters ..."
     
     # BCFtools QC pipeline
@@ -168,6 +144,7 @@ process_graphtyper_vcf_block() {
     
     # Track temp files
     temp_files_local+=("${file_name_prefix}.bcf" "${file_name_prefix}.bcf.csi")
+
     track_temp_file "${file_name_prefix}.bcf"
     track_temp_file "${file_name_prefix}.bcf.csi"
     
@@ -176,12 +153,12 @@ process_graphtyper_vcf_block() {
     
     # Check if there are variants after QC
     if ! bcftools view -H "${file_name_prefix}.bcf" | head -n 1 | grep -q . ; then
-        log_message "WARNING: No variants remaining after QC. Skipping."
+        log_message "ERROR: No variants remaining after QC. Skipping."
         return 1
     fi
     
     # Stage 3: Plink2 processing
-    cleanup_stage=3
+
     log_message "INFO: Converting BCF to Plink2 files ..."
     
     if ! plink2 --make-pgen 'vzs' \
@@ -201,7 +178,7 @@ process_graphtyper_vcf_block() {
     rm "${file_name_prefix}.bcf" "${file_name_prefix}.bcf.csi"
     
     # Stage 4: Create sites-only VCF and collect metrics
-    cleanup_stage=4
+
     log_message "INFO: Creating sites-only VCF ..."
     
     # Create sites-only VCF (with error checking)
@@ -280,12 +257,16 @@ process_graphtyper_vcf_block() {
         return 2
     fi
     
+
     # Compress the psam file
     gzip -c "${file_name_prefix}.qc.psam" > "${file_name_prefix}.qc.psam.gz"
 
     # Track temp files
     temp_files_local+=("${file_name_prefix}.qc.psam.gz" "${file_name_prefix}.qc.quality_scores.tsv.gz" "${file_name_prefix}.qc.sample_stats.tsv.gz")
     
+    # Clean up intermediate files
+    rm -f "${file_name_prefix}.qc.scount.zst" "${file_name_prefix}.qc.pvar.zst.bk" "${file_name_prefix}.qc.log" "${file_name_prefix}.qc.psam"
+
     # Organize files for upload
     log_message "INFO: Organizing files for upload ..."
     mkdir -p "${vcf_dir}/pfiles" "${vcf_dir}/stats" "${vcf_dir}/sites" "${vcf_dir}/logs"
@@ -294,8 +275,6 @@ process_graphtyper_vcf_block() {
     mv "${file_name_prefix}.qc.bed" "${file_name_prefix}.qc.sites.vcf.gz" "${file_name_prefix}.qc.sites.vcf.gz.csi" "${vcf_dir}/sites/"
     mv "${file_name_prefix}.qc.quality_scores.tsv.gz" "${file_name_prefix}.qc.sample_stats.tsv.gz" "${vcf_dir}/stats/"
     
-    # Clean up intermediate files
-    rm -f "${file_name_prefix}.qc.scount.zst" "${file_name_prefix}.qc.pvar.zst.bk" "${file_name_prefix}.qc.log" "${file_name_prefix}.qc.psam"
     
     # Upload files
     log_message "INFO: Uploading outputs to destination directory ..."
@@ -324,8 +303,7 @@ process_graphtyper_vcf_block() {
         return 2
     fi
     
-    # Success! Mark cleanup stage as complete so directory won't be deleted
-    cleanup_stage=5
+    # Success! Mark cleanup stage as complete
     
     log_message "INFO: Successfully completed processing for $vcf_name"
     echo "$vcf_name,$output_files_list_hash"
