@@ -22,7 +22,7 @@ fi
 
 
 # This will export the input vcf hash, name and directory.
-export VCF_LIST_HASH="$(cat job_input.json  | jq -r .ukb23374_vcf_list.["$dnanexus_link"] | sed 's/project-.*://' )"
+export VCF_LIST_HASH="$(cat job_input.json  | jq -r '.ukb23374_vcf_list.["$dnanexus_link"]' | sed 's/project-.*://' )"
 export VCF_LIST_NAME=$(dx describe --json $VCF_LIST_HASH | jq -r .name | sed 's/project-.*://' )
 export VCF_LIST_DIR=$(dx describe --json $VCF_LIST_HASH | jq -r .folder | sed 's/project-.*://' )
 
