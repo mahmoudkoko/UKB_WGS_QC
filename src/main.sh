@@ -16,12 +16,13 @@ export -f track_temp_dir
 export -f track_temp_file
 
 
+# Set global cleanup trap
+trap global_cleanup EXIT INT TERM
+
 
 # Set global vars
 export_global_vars
 
-# Set global cleanup trap
-trap global_cleanup EXIT INT TERM
 
 # Print execution context
 log_execution_context

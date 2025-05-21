@@ -71,7 +71,7 @@ process_graphtyper_vcf_block() {
             return 1
     
     # Validate VCF name
-    elif [[ ! "$vcf_name" =~ ^ukb23374_c ]] || [[ ! "$vcf_name" =~ "_v1.vcf.gz$" ]] || [[ ! "$chr" =~ ^([1-9]|1[0-9]|2[0-2]|X|x)$ ]] || [[ ! "$blk" =~ ^-?[0-9]+$ ]]; then
+    elif [[ ! "$vcf_name" =~ ^ukb23374_c ]] || [[ ! "$vcf_name" =~ _v1.vcf.gz$ ]] || [[ ! "$chr" =~ ^([1-9]|1[0-9]|2[0-2]|X|x)$ ]] || [[ ! "$blk" =~ ^-?[0-9]+$ ]]; then
         log_message "ERROR: $vcf_name does not match expected pattern (ukb23374_cx_bx_v1.vcf.gz)"
         return 1
   

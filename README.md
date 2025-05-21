@@ -26,6 +26,7 @@ Clone the QC repository locally, then compress the resources folder (contains th
 
 
 ```bash
+mkdir my_test_workspace && cd my_test_workspace
 
 git clone https://github.com/mahmoudkoko/UKB_WGS_QC.git
 
@@ -82,10 +83,9 @@ sudo cp wgs_qc_code/lib/* /usr/lib/
 sudo cp -r wgs_qc_code/scripts /usr/scripts
 
 # replace the job input json
+
 cat wgs_qc_code/job_input.json > /home/dnanexus/job_input.json
 
-# install parallel
-#sudo apt install parallel
 ```
 
 Starts by sourcing the scripts and preparing the environemnts:
