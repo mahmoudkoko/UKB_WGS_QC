@@ -1,13 +1,12 @@
-
 #####################################
 # QC function with integrated cleanup
 #####################################
 
 process_graphtyper_vcf_block() {
+
     # Local cleanup tracking for this function
     local temp_files_local=()
     local temp_dirs_local=()
-    local cleanup_stage=0
     
     # Function-specific cleanup
     cleanup_vcf_processing() {
@@ -38,7 +37,7 @@ process_graphtyper_vcf_block() {
     
     # Stage 0: Function initialization
     
-    # Read input and validate
+    # Read input, remove any quotes and initiate other variables.
     local vcf_input="$(echo $1 | sed -e "s/project-.*://" -e 's/^"//' -e 's/"$//')"
     local vcf_desc=""
     local vcf_hash=""
@@ -47,11 +46,13 @@ process_graphtyper_vcf_block() {
     local chr=""
     local blk=""
     local file_name_prefix=""
+    local output_files_list_hash=""
     local output_files_array=()
     
+    log_message "INFO: Processing Input: $1"        
 
     # Determine if input is file hash or path
-    vcf_desc=$(dx describe --json "${DX_PROJECT_CONTEXT_ID}:$query_input" 2>/dev/null )
+    vcf_desc=$(dx describe --json "${DX_PROJECT_CONTEXT_ID}:$vcf_input" 2>/dev/null )
     vcf_hash="$(echo $vcf_desc | jq -r .id )"
     vcf_name="$(echo $vcf_desc | jq -r .name )"
 
@@ -59,21 +60,33 @@ process_graphtyper_vcf_block() {
     chr=$(echo "$vcf_name" | cut -f2 -d'_' | tr -d 'c')
     blk=$(echo "$vcf_name" | cut -f3 -d'_' | tr -d 'b')
     
+    # Add to output array
+    output_files_array+=("${chr}")
+    output_files_array+=("${blk}")
+    output_files_array+=("${vcf_hash}")
 
 
     if [[ -z "$vcf_name" ]] || [[ -z "$chr" ]] || [[ -z "$blk" ]]; then
             log_message "ERROR: Cannot resolve vcf file ID or path"
-            return 2
+            return 1
     
     # Validate VCF name
     elif [[ ! "$vcf_name" =~ ^ukb23374_c ]] || [[ ! "$vcf_name" =~ "_v1.vcf.gz$" ]] || [[ ! "$chr" =~ ^([1-9]|1[0-9]|2[0-2]|X|x)$ ]] || [[ ! "$blk" =~ ^-?[0-9]+$ ]]; then
         log_message "ERROR: $vcf_name does not match expected pattern (ukb23374_cx_bx_v1.vcf.gz)"
-        return 2
+        return 1
   
     # Check for existing outputs (this prevents the same file from running twice by mistake)
     elif dx find data --name "${vcf_name%.vcf.gz}.qc_outputs.txt" --folder "${DX_PROJECT_CONTEXT_ID}:${OUTPUT_DIR}/logs/" --brief | grep -q . ; then
-        log_message "ERROR: Found existing outputs for $vcf_name. Skipping."
-        return 1
+        log_message "INFO: Found existing outputs for $vcf_name "
+        if ! output_files_list_hash=$(dx describe --json "${DX_PROJECT_CONTEXT_ID}:${OUTPUT_DIR}/logs/${vcf_name%.vcf.gz}.qc_outputs.txt" 2> /dev/null); then
+            log_message "ERROR: could not pull the hash of the previous output list"
+            return 1
+        else
+            log_message "INFO: Skipping $vcf_name and reporting previous output"
+            echo "$vcf_name,$output_files_list_hash"
+            return 0
+        fi
+
     else
         # Continue if no errors
         log_message "INFO: Processing vcf file: $vcf_name"
@@ -95,7 +108,7 @@ process_graphtyper_vcf_block() {
     
     if ! dx download -f "${DX_PROJECT_CONTEXT_ID}:${vcf_hash}" --output "$vcf_dir/" --no-progress; then
         log_message "ERROR: Failed to download $vcf_hash"
-        return 2
+        return 1
     fi
     
     # Track temp files locally and globally
@@ -104,14 +117,38 @@ process_graphtyper_vcf_block() {
     track_temp_file "${file_name_prefix}.vcf.gz"
     
     # Check if VCF has variants
-    if ! bcftools view -H "${file_name_prefix}.vcf.gz" | head -n 1 | grep -q . ; then
-        log_message "ERROR: No variants in this VCF. Skipping."
-        return 1
+    if bcftools view -H "${file_name_prefix}.vcf.gz" | head -n 1 | grep -q . ; then
+ 
+        log_message "INFO: Applying genotype filters ..."
+
+    else
+
+        log_message "INFO: No variants in this VCF ..."
+
+        output_files_array+=("NA" "NA" "NA" "NA" "NA" "NA" "NA" "NA")
+        
+        # Upload the final output list
+        if ! output_files_list_hash=$(echo "${output_files_array[@]}" |\
+            dx upload - \
+                --path "${OUTPUT_DIR}/logs/${vcf_name%.vcf.gz}.qc_outputs.txt" \
+                --tag "wgs_qc_log" \
+                --property "$(printf 'chromosome=%s' "$chr")" \
+                --property "$(printf 'block=%s' "$blk")" \
+                --brief); then
+            log_message "ERROR: Failed to upload final output list"
+            return 1
+        fi
+    
+        log_message "INFO: Successfully completed processing for $vcf_name"
+        echo "$vcf_name,$output_files_list_hash"
+        return 0
+
     fi
     
+
+
     # Stage 2: BCF processing
 
-    log_message "INFO: Applying genotype filters ..."
     
     # BCFtools QC pipeline
     if ! {
@@ -136,10 +173,10 @@ process_graphtyper_vcf_block() {
         bcftools +tag2tag --no-version -Ou -- --PL-to-GL --replace |\
         bcftools +fill-tags --no-version -Ou -- -t 'INFO/LEN_REF:1=STRLEN(REF),INFO/LEN_ALT:1=STRLEN(ALT),INFO/QAD= ( 0 - ( ( SUM(FMT/GL) - SUM(FMT/GL[:0]) ) / ( SUM(FMT/AD) - SUM(FMT/AD[:0]) ) ) ),INFO/DP_AVG=MEAN(FMT/DP),INFO/GQ_AVG=MEAN(FMT/GQ),INFO/DP10_REF=( COUNT(GT="0/0" & FMT/AD[:0] < 10 ) / COUNT(GT="0/0") ),INFO/DP10_HOM=( COUNT(GT="1/1" & FMT/AD[:1] < 10 ) / COUNT(GT="1/1") ),INFO/DP10_HET=( COUNT(GT="0/1" & SUM(FMT/AD) < 10 ) / COUNT(GT="0/1") ),INFO/GQ40_REF=( COUNT(GT="0/0" & FMT/GQ < 40 & FMT/plGQ < 40 ) /  COUNT(GT="0/0") ),INFO/GQ40_HOM=( COUNT(GT="1/1" & FMT/GQ < 40 & FMT/plGQ < 40 ) /  COUNT(GT="1/1") ),INFO/GQ40_HET=( COUNT(GT="0/1" & FMT/GQ < 40 & FMT/plGQ < 40 ) /  COUNT(GT="0/1") ),INFO/VAF40_HET=( COUNT(GT="0/1" & (VAF < 40 | VAF > 60) ) / COUNT(GT="0/1") )' |\
         bcftools annotate --no-version -Ou -x FORMAT/AD,FORMAT/DP,FORMAT/GQ,FORMAT/GL,FORMAT/plGQ,FORMAT/VAF,FORMAT/pAB |\
-        bcftools view --no-version -Ob -i 'AC>0' -l 2 -o "${file_name_prefix}.bcf" --write-index=csi
+        bcftools filter --no-version -Ob -s 'AC0' -m+ -i 'AC=0' -l 2 -o "${file_name_prefix}.bcf" --write-index=csi
     }; then
         log_message "ERROR: BCFtools pipeline failed"
-        return 2
+        return 1
     fi
     
     # Track temp files
@@ -153,7 +190,7 @@ process_graphtyper_vcf_block() {
     
     # Check if there are variants after QC
     if ! bcftools view -H "${file_name_prefix}.bcf" | head -n 1 | grep -q . ; then
-        log_message "ERROR: No variants remaining after QC. Skipping."
+        log_message "ERROR: No variants remaining after QC although original file had variants"
         return 1
     fi
     
@@ -168,7 +205,7 @@ process_graphtyper_vcf_block() {
         --memory 3000 \
         --out "${file_name_prefix}.qc"; then
         log_message "ERROR: plink2 conversion failed"
-        return 2
+        return 1
     fi
     
     # Track temp files
@@ -192,7 +229,7 @@ process_graphtyper_vcf_block() {
         bgzip > "${file_name_prefix}.qc.sites.vcf.gz"
     }; then
         log_message "ERROR: Failed to create VCF header"
-        return 2
+        return 1
     fi
     
     # Append variants
@@ -204,13 +241,13 @@ process_graphtyper_vcf_block() {
         bgzip >> "${file_name_prefix}.qc.sites.vcf.gz"
     }; then
         log_message "ERROR: Failed to append variants to VCF"
-        return 2
+        return 1
     fi
     
     # Index the VCF
     if ! bcftools index "${file_name_prefix}.qc.sites.vcf.gz"; then
         log_message "ERROR: Failed to index sites VCF"
-        return 2
+        return 1
     fi
     
     temp_files_local+=("${file_name_prefix}.qc.sites.vcf.gz" "${file_name_prefix}.qc.sites.vcf.gz.csi" "${file_name_prefix}.qc.bed")
@@ -222,7 +259,7 @@ process_graphtyper_vcf_block() {
         zstd --no-progress -o "${file_name_prefix}.qc.pvar.zst"
     }; then
         log_message "ERROR: Failed to create new pvar file"
-        return 2
+        return 1
     fi
     
     # Collect quality metrics
@@ -233,7 +270,7 @@ process_graphtyper_vcf_block() {
         gzip > "${file_name_prefix}.qc.quality_scores.tsv.gz"
     }; then
         log_message "ERROR: Failed to collect quality metrics"
-        return 2
+        return 1
     fi
     
     # Collect sample metrics
@@ -244,7 +281,7 @@ process_graphtyper_vcf_block() {
         --memory 3000 \
         --out "${file_name_prefix}.qc"; then
         log_message "ERROR: Failed to collect sample metrics"
-        return 2
+        return 1
     fi
     
     # Reformat sample counts
@@ -254,7 +291,7 @@ process_graphtyper_vcf_block() {
         gzip > "${file_name_prefix}.qc.sample_stats.tsv.gz"
     }; then
         log_message "ERROR: Failed to reformat sample counts"
-        return 2
+        return 1
     fi
     
 
@@ -281,17 +318,13 @@ process_graphtyper_vcf_block() {
     local dx_upload_ids
     if ! mapfile -t dx_upload_ids < <(dx upload --recursive "$vcf_dir/" --tag "wgs_qc_output" --path ${OUTPUT_DIR} --brief); then
         log_message "ERROR: Failed to upload files"
-        return 2
+        return 1
     fi
     
     # Add to output array
-    output_files_array+=("${chr}")
-    output_files_array+=("${blk}")
-    output_files_array+=("${vcf_hash}")
     output_files_array+=("${dx_upload_ids[@]}")
     
     # Upload the final output list
-    local output_files_list_hash
     if ! output_files_list_hash=$(echo "${output_files_array[@]}" |\
         dx upload - \
             --path "${OUTPUT_DIR}/logs/${vcf_name%.vcf.gz}.qc_outputs.txt" \
@@ -300,11 +333,10 @@ process_graphtyper_vcf_block() {
             --property "$(printf 'block=%s' "$blk")" \
             --brief); then
         log_message "ERROR: Failed to upload final output list"
-        return 2
+        return 1
     fi
     
-    # Success! Mark cleanup stage as complete
-    
+
     log_message "INFO: Successfully completed processing for $vcf_name"
     echo "$vcf_name,$output_files_list_hash"
     return 0

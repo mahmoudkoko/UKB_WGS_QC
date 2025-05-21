@@ -58,5 +58,4 @@ log_execution_context() {
     echo "=== Output directories ==="
     echo "QC files (bgen, sites, stats) : ${OUTPUT_DIR:-'Not available'}"
     echo "Log files (summary.txt.gz): ${VCF_LIST_DIR:-'Not available'}"
-    echo "========================="
 }

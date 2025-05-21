@@ -3,35 +3,28 @@
 ###########################################
 
 check_ongoing_applet_runs() {
-    # strip the project ID in case there is one
-    local input_vcf_list="$(echo $VCF_LIST_HASH | sed 's/project-.*://')"
     
-    # Get current applet and job IDs from environment
-    local current_applet_id="${DX_APPLET_ID:-}"
-    local current_job_id="${DX_JOB_ID:-}"
-    
-    if [[ -z "$current_applet_id" ]] || [[ "$current_applet_id" == null ]]; then
-        log_message "WARNING: Could not determine current applet ID from environment. Using default: ukb23374_wgs_qc_applet"
-        # Fallback to hardcoded name
-        current_applet_id="ukb23374_wgs_qc_applet"
+    if [[ -z "$DX_APPLET_ID" ]] || [[ "$DX_APPLET_ID" == null ]]; then
+        log_message "ERROR: Could not determine current applet ID from environment. Using default: ukb23374_wgs_qc_applet"
+        return 1
     else
-        log_message "INFO: Using applet ID from environment: $current_applet_id"
+        log_message "INFO: Using applet ID from environment: $DX_APPLET_ID"
     fi
     
-    log_message "INFO: Checking for ongoing applet runs with same input $input_vcf_list ..."
+    log_message "INFO: Checking for ongoing applet runs with same input $VCF_LIST_HASH ..."
     
     # Find running or runnable jobs for this applet (using actual applet ID)
     local ongoing_jobs
     ongoing_jobs=$(dx find jobs \
         --project ${DX_PROJECT_CONTEXT_ID} \
+        --executable "$DX_APPLET_ID" \
         --tag "wgs_qc_batch" \
-        --executable "$current_applet_id" \
         --brief |\
         sed 's/project-.*://' 2>/dev/null || true)
     
     if [[ -z "$ongoing_jobs" ]]; then
-        log_message "INFO: No ongoing applet runs found"
-        return 0
+        log_message "ERROR: Failed to properly identify running jobs (should at least identify self)"
+        return 1
     fi
 
     local job_count=$(echo "$ongoing_jobs" | wc -l)
@@ -43,8 +36,7 @@ check_ongoing_applet_runs() {
         if [[ -n "$job_id" ]]; then
 
             # Skip checking our own job
-            if [[ "$job_id" == "$current_job_id" ]]; then
-                log_message "INFO: Skipping self (job: $job_id)"
+            if [[ "$job_id" == "$DX_JOB_ID" ]]; then
                 continue
             fi
             
@@ -54,8 +46,8 @@ check_ongoing_applet_runs() {
             
             # Skip of no description
             if [[ -z "$job_describe" ]]; then
-                log_message "WARNING: Could not describe job $job_id"
-                continue
+                log_message "ERROR: Could not describe job $job_id"
+                return 1
 
             else
 
@@ -63,10 +55,10 @@ check_ongoing_applet_runs() {
                 local job_input
                 job_input=$(echo "$job_describe" | jq -r '.runInput.ukb23374_vcf_list["$dnanexus_link"]' | sed 's/project-.*://' 2>/dev/null || echo "")
 
-                # If that didn't work or the result isn't as expected, skip this job
+                # If that didn't work or the result isn't as expected, fail
                 if [[ -z "$job_input" ]] || [[ ! "$job_input" =~ ^file- ]]; then
-                    log_message "WARNING: Could not parse the input of job $job_id"
-                    continue
+                    log_message "ERROR: Could not parse the input of job $job_id"
+                    return 1
 
                 else
 
@@ -88,8 +80,8 @@ check_ongoing_applet_runs() {
             fi
 
             # Check if input is indentical
-            if [[ "$job_input" == "$input_vcf_list" ]]; then
-                log_message "INFO: Found ongoing applet run with same input $input_vcf_list:"
+            if [[ "$job_input" == "$VCF_LIST_HASH" ]]; then
+                log_message "INFO: Found ongoing applet run with same input $VCF_LIST_HASH:"
                 log_message "INFO:   Job ID: $job_id"
                 log_message "INFO:   Job input: $job_input"
                 log_message "INFO:   Created: $job_created"
@@ -97,7 +89,7 @@ check_ongoing_applet_runs() {
 
                 case "$job_status" in
                   "terminated"|"failed"|"debug_hold")
-                    echo "WARNING: Previous job terminated or failed - Proceeding"
+                    echo "INFO: Previous job terminated or failed - Proceeding"
                     ;;
                   *)
                     log_message "ERROR: The previous job is running or finished without errors - Aborting to avoid duplicate processing"
@@ -106,12 +98,11 @@ check_ongoing_applet_runs() {
                 esac
 
             else
-                # Don't print anything since these jobs could be several
                 continue
             fi
         fi
     done <<< "$ongoing_jobs"
     
-    log_message "INFO: No ongoing runs found with same input - Proceeding"
+    log_message "INFO: No ongoing runs using the same input"
     return 0
 }

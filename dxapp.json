@@ -1,7 +1,7 @@
 {
   "name": "ukb23374_wgs_qc_applet",
   "title": "GraphTyper WGS QC Applet",
-  "summary": "WGS QC applet. Takes a list of vcf file IDs in a single file runs a bunch of pre-defined filters. The output is plink2 files and some other qc metrics.",
+  "summary": "WGS QC applet. Takes a list of vcf file IDs or paths in a single file. Runs a bunch of pre-defined filters. Creates plink2 files, sites-only vcfs, variant counts per sample, and quality scores per variant.",
   "version": "0.2.0",
   "inputSpec":
     [
